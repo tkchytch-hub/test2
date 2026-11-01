@@ -256,6 +256,7 @@ body.has-dock .wrap{padding-bottom:calc(104px + env(safe-area-inset-bottom,0px))
 .qs{font-size:calc(21px*var(--fs,1))}
 
 /* ===== 語彙ドリル ===== */
+.wnote{margin:6px 0 8px;color:var(--muted);font-size:13px}
 .vword{font-family:var(--serif);font-size:calc(36px*var(--fs,1));font-weight:600;text-align:center;margin:14px 0 6px;line-height:1.3;word-break:break-word}
 .vmean{font-size:calc(22px*var(--fs,1));text-align:center;margin:14px 0 4px;font-weight:700;line-height:1.5}
 .vsp{text-align:center;margin:2px 0 6px}
@@ -527,6 +528,19 @@ mark.clue{background:#FFF1B8;color:inherit;padding:0 .1em;border-radius:2px}
   <div class="qcard" id="vcard"></div>
   <div class="fb" id="vfb" hidden aria-live="polite"></div>
 </section>
+<!-- 今日の単語チェック（その日はじめて開いたときに出る） -->
+<section id="wquiz" class="screen" aria-label="今日の単語チェック">
+  <div class="qhead">
+    <span class="qno"><b>今日の単語チェック</b></span>
+    <span class="qno" id="wqno"></span>
+  </div>
+  <p class="wnote">毎日さいしょに5問（1問15秒）。まちがえやすい単語から出ます。終わると、いつもの練習に進めます。</p>
+  <div class="pbar"><i id="wpbar"></i></div>
+  <div class="tbar" id="wtbar" hidden><span>のこり</span><div class="tr"><i id="wtfill"></i></div><b id="wtsec"></b></div>
+  <div class="qcard" id="wcard"></div>
+  <div class="fb" id="wfb" hidden aria-live="polite"></div>
+</section>
+
 
 <!-- 長文：設定 -->
 <section id="lsetup" class="screen set" aria-label="長文の語句空所補充の設定">
@@ -2623,7 +2637,7 @@ var storageOK=true;
 try{localStorage.setItem(KEY+"-t","1");localStorage.removeItem(KEY+"-t");}catch(e){storageOK=false;}
 
 function fresh(){
-  return {streak:0,best:0,last:"",nick:"",miss:{},outbox:[],days:{},weak:{},seen:{},tq:{date:"",ok:{},ng:{}},
+  return {streak:0,best:0,last:"",nick:"",miss:{},outbox:[],wq:{date:"",hist:{}},days:{},weak:{},seen:{},tq:{date:"",ok:{},ng:{}},
           sets:{},lsets:{},hsets:{},cfg:{sn:5,spat:"both",stime:30,smode:"flash",sq:"en",sa:"both",slv:4,srate:0.9,hset:1,hpart:"both",hpre:"on",hn:5,horder:"shuffle",lset:1,mode:"rand",set:1,scope:"mix",n:20,time:0,voice:"auto",ja:"after",mean:"always",size:"std",vform:"mix",vscope:"all",vn:20,vtime:0}};
 }
 function load(){
@@ -2636,7 +2650,7 @@ function load(){
         if(typeof o.streak==="number")r.streak=o.streak;
         if(typeof o.best==="number")r.best=o.best;
         if(typeof o.last==="string")r.last=o.last;
-        ["days","weak","seen","sets","lsets","hsets","miss"].forEach(function(k){if(o[k]&&typeof o[k]==="object")r[k]=o[k];});
+        ["days","weak","seen","sets","lsets","hsets","miss","wq"].forEach(function(k){if(o[k]&&typeof o[k]==="object")r[k]=o[k];});
         if(Object.prototype.toString.call(o.outbox)==="[object Array]")r.outbox=o.outbox;
         if(typeof o.nick==="string")r.nick=o.nick;
         if(o.tq&&typeof o.tq==="object"&&o.tq.ok&&o.tq.ng)r.tq=o.tq;
@@ -2780,7 +2794,7 @@ function dock(html){
 }
 function show(id){
   stopSpeech();
-  ["top","setup","quiz","result","list","vsetup","vquiz","lsetup","lquiz","hsetup","hquiz","ssetup","squiz"].forEach(function(k){$(k).classList.toggle("on",k===id);});
+  ["top","setup","quiz","result","list","vsetup","vquiz","wquiz","lsetup","lquiz","hsetup","hquiz","ssetup","squiz"].forEach(function(k){$(k).classList.toggle("on",k===id);});
   dock(null);
   try{window.scrollTo(0,0);}catch(e){}
 }
@@ -3145,7 +3159,7 @@ document.addEventListener("click",function(e){
   }
   else if(act==="reset"){
     if(!resetArmed){resetArmed=true;el.textContent="もう一度押すと、記録を消します";clearTimeout(resetT);resetT=setTimeout(disarm,3500);}
-    else{disarm();var keep=rec.cfg,kn=rec.nick,ko=rec.outbox;rec=fresh();rec.cfg=keep;rec.nick=kn;rec.outbox=ko;save();renderTop();}
+    else{disarm();var keep=rec.cfg,kn=rec.nick,ko=rec.outbox,kw=rec.wq;rec=fresh();rec.cfg=keep;rec.nick=kn;rec.outbox=ko;if(kw)rec.wq={date:kw.date||"",hist:{}};save();renderTop();}
   }
 });
 document.addEventListener("keydown",function(e){
@@ -4111,6 +4125,8 @@ function stockMiss(id,info){
   var t=dkey(new Date()),m=rec.miss[id];
   if(!m)m=rec.miss[id]={n:0,first:t,last:t};
   m.n++;m.last=t;
+  /* 大問1でまちがえて選んだ語も覚えておく（今日の単語チェックで、まぎらわしい語として出す） */
+  if(QID[id]&&info&&info.mine){if(!m.mw)m.mw={};m.mw[String(info.mine).slice(0,40)]=1;}
   if(!REPORT_URL)return;
   var d=describeItem(id);
   if(!rec.outbox)rec.outbox=[];
@@ -4253,7 +4269,7 @@ document.addEventListener("click",function(e){
     readCode(code).then(function(o){
       var r=fresh();
       ["streak","best","last"].forEach(function(k){if(typeof o[k]===typeof r[k])r[k]=o[k];});
-      ["days","weak","seen","sets","lsets","hsets","tq","miss"].forEach(function(k){if(o[k]&&typeof o[k]==="object")r[k]=o[k];});
+      ["days","weak","seen","sets","lsets","hsets","tq","miss","wq"].forEach(function(k){if(o[k]&&typeof o[k]==="object")r[k]=o[k];});
       if(Object.prototype.toString.call(o.outbox)==="[object Array]")r.outbox=o.outbox;
       r.nick=(typeof o.nick==="string"&&o.nick)?o.nick:(rec.nick||"");
       if(o.cfg&&typeof o.cfg==="object"){for(var k in r.cfg){if(typeof o.cfg[k]===typeof r.cfg[k])r.cfg[k]=o.cfg[k];}}
@@ -4266,6 +4282,179 @@ document.addEventListener("click",function(e){
   }
 });
 window.__bk={makeCode:makeCode,readCode:readCode};
+
+/* ===================================================================
+   今日の単語チェック
+   ・その日はじめてトップを開いたときに、英単語→日本語の意味の4択を5問出す
+   ・まちがえやすい単語（大問1・語彙ドリルでまちがえた語）から優先して出す
+   ・5問終わるまで、ほかの練習には進めない（まちがえた語は最後にもう一度出る）
+   =================================================================== */
+var DAILY_N=5;
+var DAILY_SEC=15;   /* 1問の制限時間（秒） */
+var W=null;
+function wStopTimer(){if(W&&W.timer){clearInterval(W.timer);W.timer=null;}}
+function wStartTimer(){
+  wStopTimer();
+  var tb=$("wtbar");tb.hidden=false;
+  var total=DAILY_SEC*1000,end=Date.now()+total,bar=$("wtfill");
+  bar.style.width="100%";bar.classList.remove("low");$("wtsec").textContent=DAILY_SEC;
+  W.timer=setInterval(function(){
+    var left=end-Date.now();
+    if(left<=0){wStopTimer();bar.style.width="0%";$("wtsec").textContent=0;wPick(-1);return;}
+    var p=left/total;bar.style.width=(p*100)+"%";bar.classList.toggle("low",p<0.3);
+    $("wtsec").textContent=Math.ceil(left/1000);
+  },100);
+}
+function vOfWord(w){
+  if(!w)return null;
+  var k=String(w).toLowerCase(),g=G[k],lm=(g&&g[2])||k;
+  return VID["d:"+lm]||null;
+}
+function wHist(){if(!rec.wq||typeof rec.wq!=="object")rec.wq={date:"",hist:{}};if(!rec.wq.hist)rec.wq.hist={};return rec.wq;}
+function dailyDone(){return wHist().date===dkey(new Date());}
+/* 出す5語を選ぶ */
+function dailyPick(){
+  var score={},hist=wHist().hist;
+  function add(o,s){if(!o)return;score[o.id]=(score[o.id]||0)+s;}
+  var id,q;
+  for(id in (rec.weak||{})){
+    var wk=rec.weak[id]||0;
+    if(VID[id])add(VID[id],wk*3);
+    else if((q=QID[id]))add(vOfWord(q.k),wk*3);
+  }
+  for(id in (rec.miss||{})){
+    var mn=Math.min((rec.miss[id]&&rec.miss[id].n)||1,5);
+    if(VID[id])add(VID[id],mn);
+    else if((q=QID[id])){
+      add(vOfWord(q.k),mn);
+      for(var mw in (rec.miss[id].mw||{}))add(vOfWord(mw),1.5);   /* まちがえて選んだ語（例：sincere の問題で選んだ crucial） */
+    }
+  }
+  var cand=[];
+  for(id in score){
+    var h=hist[id]||{ok:0};
+    if(h.ok>=3)continue;                 /* このチェックで3日続けて正解した語は、いったん休み */
+    var s=score[id]-h.ok*2;
+    if(s>0)cand.push({o:VID[id],s:s+Math.random()});
+  }
+  cand.sort(function(a,b){return b.s-a.s;});
+  var out=cand.slice(0,DAILY_N).map(function(c){return c.o;});
+  if(out.length<DAILY_N){
+    var used={};out.forEach(function(o){used[o.id]=1;});
+    var rest=shuffle(V.filter(function(o){return !used[o.id]&&!((hist[o.id]||{}).ok>=3);}));
+    out=out.concat(rest.slice(0,DAILY_N-out.length));
+  }
+  return shuffle(out);
+}
+function dailyMaybe(){
+  setTimeout(function(){
+    if(W||dailyDone()||V.length<8)return;
+    if(!$("top").classList.contains("on"))return;
+    dailyStart();
+  },0);
+}
+function dailyStart(){
+  var words=dailyPick();
+  if(!words.length)return;
+  W={list:words.map(function(o){return {o:o,retry:false};}),i:0,ok:0,n:0,ms:0,tn:0,t0:Date.now(),
+     answered:false,ch:[],qStart:0,wrong:[],logged:false};
+  show("wquiz");
+  wRender();
+}
+function wRender(){
+  var it=W.list[W.i],o=it.o;
+  W.answered=false;
+  var firstLeft=W.list.filter(function(x,k){return k>=W.i;}).length;
+  $("wqno").textContent="あと "+firstLeft+" 問";
+  $("wpbar").style.width=(W.i/W.list.length*100)+"%";
+  W.ch=shuffle([o].concat(vDistractors(o)));
+  $("wcard").innerHTML=
+    '<span class="qtag">'+(it.retry?"もう一度":"意味を選ぶ")+'　'+esc(vPosLabel(o))+'</span>'+
+    '<p class="vword en">'+esc(o.w)+'</p>'+
+    (rec.cfg.voice==="button"?'<p class="vsp">'+spkBtn(o.w,"発音を聞く")+'</p>':'')+
+    '<div class="choices">'+W.ch.map(function(c,i){
+      return '<button type="button" class="chb ja" data-act="w-pick" data-i="'+i+'"><span class="cn">'+(i+1)+'</span><span class="ct">'+esc(optText(c.j))+'</span></button>';
+    }).join("")+'</div>';
+  $("wfb").hidden=true;$("wfb").innerHTML="";
+  dock(null);
+  W.qStart=Date.now();
+  wStartTimer();
+  if(rec.cfg.voice==="auto")speak(o.w);
+}
+function wPick(i){
+  if(!W||W.answered)return;
+  var it=W.list[W.i],o=it.o,timeout=(i<0),ok=!timeout&&(W.ch[i]===o),c=timeout?null:W.ch[i];
+  W.answered=true;wStopTimer();
+  var btns=$("wcard").querySelectorAll(".chb");
+  for(var n=0;n<btns.length;n++){
+    btns[n].classList.add("locked");
+    if(W.ch[n]===o)btns[n].classList.add("ok");else if(n===i)btns[n].classList.add("ng");else btns[n].classList.add("dim");
+  }
+  var ms=Math.min(Date.now()-W.qStart,120000);
+  if(!it.retry){
+    /* 1回目の答えだけを記録する（先生への記録・苦手の判定にも使う） */
+    W.n++;W.ms+=ms;W.tn++;
+    if(ok)W.ok++;else{W.wrong.push(o);W.list.push({o:o,retry:true});}
+    record(ok,o.id,ms,{mine:timeout?"（時間切れ）":(c?c.j:"")});
+    var hs=wHist().hist,h=hs[o.id]||(hs[o.id]={ok:0,last:""});
+    h.ok=ok?h.ok+1:0;h.last=dkey(new Date());
+    save();
+  }else if(!ok){
+    W.list.push({o:o,retry:true});      /* もう一度でもまちがえたら、正解するまで出す */
+  }
+  var mark=ok
+    ?'<svg class="mark" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="17"/></svg>'
+    :'<svg class="mark" viewBox="0 0 48 48" aria-hidden="true"><path d="M12 12 L36 36"/><path d="M36 12 L12 36"/></svg>';
+  var h2='<div class="fb-head">'+mark+'<p class="fb-title '+(ok?"good":"bad")+'">'+(ok?"正解です":(timeout?"時間切れ":"おしい！"))+'</p></div>'+
+    '<p class="vans"><span class="w en">'+esc(o.w)+'</span><span class="pos">'+esc(vPosLabel(o))+'</span>'+spkBtn(o.w)+'</p>'+
+    '<p class="fb-ja">'+esc(o.j)+'</p>';
+  if(timeout&&!it.retry)h2+='<p class="fb-ex">この単語は、最後にもう一度出ます。</p>';
+  if(!ok&&c)h2+='<p class="fb-ex">あなたが選んだ意味は <span class="en">'+esc(c.w)+'</span>（'+esc(optText(c.j))+'）の意味です。'+(it.retry?'':'この単語は、最後にもう一度出ます。')+'</p>';
+  h2+=exHTML(o);
+  $("wfb").innerHTML=h2;$("wfb").hidden=false;
+  var last=(W.i+1>=W.list.length);
+  dock('<button type="button" class="btn" data-act="w-next">'+(last?"結果を見る":"次の問題")+'</button>');
+  if(rec.cfg.voice!=="off"&&!timeout)speak(o.w);
+  try{$("wfb").scrollIntoView({block:"nearest",behavior:"smooth"});}catch(e){}
+}
+function wNext(){
+  if(!W||!W.answered)return;
+  W.i++;
+  if(W.i>=W.list.length){wResult();return;}
+  wRender();
+  try{window.scrollTo(0,0);}catch(e){}
+}
+function wResult(){
+  wStopTimer();$("wtbar").hidden=true;
+  wHist().date=dkey(new Date());save();
+  logSession(W,"今日の単語チェック","毎日さいしょの"+DAILY_N+"問",W.n,W.ok,W.ms,W.tn,true);
+  var seen={},words=[];
+  W.list.forEach(function(x){if(!seen[x.o.id]){seen[x.o.id]=1;words.push(x.o);}});
+  var miss={};W.wrong.forEach(function(o){miss[o.id]=1;});
+  $("wqno").textContent="おわり";
+  $("wpbar").style.width="100%";
+  $("wcard").innerHTML='<span class="qtag">今日の単語チェック</span>'+
+    '<p class="vword">'+W.ok+' <small>/ '+W.n+'</small></p>'+
+    '<p class="sub" style="text-align:center">'+(W.ok===W.n?"全問正解です。この調子で続けましょう。":"まちがえた単語も、最後には全部正解できました。")+'</p>'+
+    '<ul class="review">'+words.map(function(o){
+      return '<li><span class="en"><b>'+esc(o.w)+'</b></span>　'+esc(optText(o.j))+(miss[o.id]?'　<span class="lx">もう一度</span>':'')+'</li>';
+    }).join("")+'</ul>';
+  $("wfb").hidden=true;
+  dock('<button type="button" class="btn" data-act="w-done">練習を始める</button>');
+}
+document.addEventListener("click",function(e){
+  var el=e.target.closest?e.target.closest("[data-act]"):null;
+  if(!el)return;
+  var act=el.getAttribute("data-act");
+  if(act==="w-pick")wPick(parseInt(el.getAttribute("data-i"),10));
+  else if(act==="w-next")wNext();
+  else if(act==="w-done"){wStopTimer();W=null;stopSpeech();renderTop();show("top");}
+});
+/* トップを表示するたびに、今日のチェックが済んでいるか確かめる */
+var renderTop0=renderTop;
+renderTop=function(){renderTop0();dailyMaybe();};
+document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible")dailyMaybe();});
+window.__daily={pick:dailyPick,start:dailyStart,done:dailyDone,cur:function(){return W?{ok:W.ch.indexOf(W.list[W.i].o),answered:W.answered}:null;}};
 
 applySize();
 renderTop();
